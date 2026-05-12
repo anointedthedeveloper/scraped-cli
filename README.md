@@ -1,0 +1,1 @@
+A fast and lightweight CLI tool for scraping and extracting structured data from websites using CSS selectors.
