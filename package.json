@@ -1,0 +1,17 @@
+{
+  "name": "scraped-cli",
+  "version": "1.0.0",
+  "description": "CLI web scraping tool",
+  "main": "bin/scraped.js",
+  "bin": {
+    "scraped": "bin/scraped.js"
+  },
+  "scripts": {
+    "start": "node bin/scraped.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "cheerio": "^1.0.0-rc.12",
+    "commander": "^11.1.0"
+  }
+}
