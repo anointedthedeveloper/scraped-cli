@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 /**
  * scraped-cli - Command-line web scraping tool
  * Entry point for the CLI application

@@ -57,13 +57,12 @@ function setupSearchCommand(program) {
   program
     .command('search <query>')
     .description('Search the web for a query')
-    .option('-e, --engine <engine>', 'Search engine (google, bing, duckduckgo)', 'google')
+    .option('-e, --engine <engine>', 'Search engine (duckduckgo, google)', 'duckduckgo')
     .option('-l, --limit <number>', 'Number of results', '10')
     .option('-o, --out <file>', 'Save results to file')
     .action(async (query, options) => {
       try {
         const { searchWeb } = require('./search');
-        console.error(`🔍 Searching for "${query}" on ${options.engine}...`);
         
         const results = await searchWeb(query, options.engine, parseInt(options.limit));
         
@@ -75,22 +74,35 @@ function setupSearchCommand(program) {
           results
         };
         
-        const { outputJSON } = require('./output');
-        await outputJSON(output, options.out);
-        
-        if (!options.out) {
-          console.log('\n📊 SEARCH RESULTS:');
-          console.log('='.repeat(60));
-          results.forEach((result, index) => {
-            console.log(`\n${index + 1}. ${result.title}`);
-            console.log(`   🔗 ${result.link}`);
-            console.log(`   📝 ${result.snippet.substring(0, 100)}...`);
-          });
-        } else {
+        if (options.out) {
+          const { outputJSON } = require('./output');
+          await outputJSON(output, options.out);
           console.error(`✅ Search results saved to: ${options.out}`);
+        } else {
+          // Display results in console
+          console.log('\n' + '='.repeat(70));
+          console.log(`🔍 SEARCH RESULTS for: "${query}"`);
+          console.log('='.repeat(70));
+          
+          if (results.length === 0) {
+            console.log('\n❌ No results found. Try a different search term.\n');
+          } else {
+            results.forEach((result, index) => {
+              console.log(`\n${index + 1}. ${result.title}`);
+              console.log(`   🔗 ${result.link}`);
+              if (result.snippet) {
+                console.log(`   📝 ${result.snippet.substring(0, 150)}${result.snippet.length > 150 ? '...' : ''}`);
+              }
+            });
+            
+            console.log('\n' + '='.repeat(70));
+            console.log(`📊 Total: ${results.length} results`);
+            console.log('='.repeat(70) + '\n');
+          }
         }
+        
       } catch (error) {
-        console.error('Search error:', error.message);
+        console.error('❌ Search error:', error.message);
         process.exit(1);
       }
     });
@@ -156,7 +168,7 @@ function setupBatchCommand(program) {
     .command('batch <file>')
     .description('Batch search from a file containing queries (one per line)')
     .option('-o, --outdir <dir>', 'Output directory for results', './reports')
-    .option('-e, --engine <engine>', 'Search engine', 'google')
+    .option('-e, --engine <engine>', 'Search engine', 'duckduckgo')
     .option('-t, --type <type>', 'Type: search or investigate', 'search')
     .action(async (file, options) => {
       try {
