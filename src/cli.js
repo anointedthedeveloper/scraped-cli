@@ -78,8 +78,10 @@ function setupSearchCommand(program) {
         const output = await aggregateSearch(query, options.type);
 
         if (options.out) {
-          const { outputJSON } = require('./output');
-          await outputJSON(output, options.out);
+          const fs = require('fs').promises;
+          const path = require('path');
+          await fs.mkdir(path.dirname(path.resolve(options.out)), { recursive: true });
+          await fs.writeFile(options.out, JSON.stringify(output, null, 2), 'utf8');
           console.error(`✅ Results saved to: ${options.out}`);
         } else {
           console.log(JSON.stringify(output, null, 2));

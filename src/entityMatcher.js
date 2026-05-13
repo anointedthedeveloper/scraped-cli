@@ -112,6 +112,9 @@ function mergeEntities(a, b, confidence) {
   // Merge images
   merged.images = [...new Set([...(a.images || []), ...(b.images || [])])];
 
+  // Merge phones
+  merged.phones = [...new Set([...(a.phones || []), ...(b.phones || [])])];
+
   // Merge socials (prefer non-empty)
   merged.socials = { ...(b.socials || {}), ...(a.socials || {}) };
   for (const [k, v] of Object.entries(b.socials || {})) {

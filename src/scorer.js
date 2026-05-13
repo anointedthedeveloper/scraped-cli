@@ -28,13 +28,14 @@ function scorePerson(result, sourceCount = 1) {
   if (result.bio) score += 0.10;
   if (result.location) score += 0.05;
   if ((result.usernames || []).length > 0) score += 0.10;
+  if ((result.phones || []).length > 0) score += 0.05;
 
   const socialCount = Object.values(result.socials || {}).filter(Boolean).length;
   if (socialCount > 0) score += Math.min(0.15, 0.10 + (socialCount - 1) * 0.03);
 
   if ((result.images || []).length > 0) score += 0.10;
 
-  score += Math.min(0.25, sourceCount * 0.05);
+  score += Math.min(0.20, sourceCount * 0.05);
 
   return parseFloat(Math.min(1, score).toFixed(2));
 }
@@ -44,7 +45,7 @@ function scorePlace(result, sourceCount = 1) {
 
   if (result.name) score += 0.20;
   if (result.address) score += 0.15;
-  if (result.phone) score += 0.10;
+  if ((result.phones || []).length > 0) score += 0.10;
   if (result.website) score += 0.10;
   if (result.description) score += 0.10;
   if ((result.images || []).length > 0) score += 0.10;
