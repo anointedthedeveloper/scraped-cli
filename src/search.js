@@ -1,5 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const crypto = require('crypto');
 const { extractImages } = require('./imageExtractor');
 const { scoreResult } = require('./scorer');
 const { matchAndMerge } = require('./entityMatcher');
@@ -12,19 +13,18 @@ async function safeFetch(url, params = {}, extraHeaders = {}, timeout = 14000) {
   try {
     const res = await axios.get(url, {
       params,
-      headers: {
-        'User-Agent': UA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        ...extraHeaders,
-      },
+      headers: { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9', ...extraHeaders },
       timeout,
       maxRedirects: 5,
     });
     return res.data;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
+}
+
+// ─── UID ──────────────────────────────────────────────────────────────────────
+
+function makeUid(seed) {
+  return crypto.createHash('sha1').update(seed).digest('hex').substring(0, 16);
 }
 
 // ─── DuckDuckGo ───────────────────────────────────────────────────────────────
@@ -32,22 +32,18 @@ async function safeFetch(url, params = {}, extraHeaders = {}, timeout = 14000) {
 async function duckduckgoSearch(query, limit = 12) {
   const html = await safeFetch('https://html.duckduckgo.com/html/', { q: query });
   if (!html) return [];
-
   const $ = cheerio.load(html);
   const results = [];
-
-  $('.result').each((i, el) => {
+  $('.result').each((_, el) => {
     if (results.length >= limit) return false;
     const title = $(el).find('.result__a').text().trim();
     let link = $(el).find('.result__a').attr('href') || '';
     const snippet = $(el).find('.result__snippet').text().trim();
-
     if (link.startsWith('/l/?uddg=')) {
       try { link = decodeURIComponent(link.replace('/l/?uddg=', '').split('&')[0]); } catch { return; }
     }
     if (title && link.startsWith('http')) results.push({ title, link, snippet });
   });
-
   return results;
 }
 
@@ -68,20 +64,27 @@ async function fetchGitHubUser(username) {
 // ─── Social patterns ──────────────────────────────────────────────────────────
 
 const SOCIAL_PATTERNS = {
-  github:    /(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_-]+)/i,
-  twitter:   /(?:https?:\/\/)?(?:www\.)?(?:twitter|x)\.com\/([A-Za-z0-9_]+)/i,
-  linkedin:  /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([A-Za-z0-9_%-]+)/i,
-  instagram: /(?:https?:\/\/)?(?:www\.)?instagram\.com\/([A-Za-z0-9_.]+)/i,
-  tiktok:    /(?:https?:\/\/)?(?:www\.)?tiktok\.com\/@([A-Za-z0-9_.]+)/i,
-  facebook:  /(?:https?:\/\/)?(?:www\.)?facebook\.com\/([A-Za-z0-9_.]+)/i,
-  devto:     /(?:https?:\/\/)?(?:www\.)?dev\.to\/([A-Za-z0-9_]+)/i,
-  youtube:   /(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:@|c\/|user\/)([A-Za-z0-9_.]+)/i,
+  github:     /(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_-]+)(?:\/[^\s"'<>]*)?/i,
+  twitter:    /(?:https?:\/\/)?(?:www\.)?(?:twitter|x)\.com\/([A-Za-z0-9_]+)/i,
+  linkedin:   /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([A-Za-z0-9_%-]+)/i,
+  instagram:  /(?:https?:\/\/)?(?:www\.)?instagram\.com\/([A-Za-z0-9_.]+)/i,
+  tiktok:     /(?:https?:\/\/)?(?:www\.)?tiktok\.com\/@([A-Za-z0-9_.]+)/i,
+  facebook:   /(?:https?:\/\/)?(?:www\.)?facebook\.com\/(?:profile\.php\?id=\d+|([A-Za-z0-9_.]+))/i,
+  youtube:    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:@|c\/|user\/|channel\/)([A-Za-z0-9_.-]+)/i,
+  devto:      /(?:https?:\/\/)?(?:www\.)?dev\.to\/([A-Za-z0-9_]+)/i,
+  pinterest:  /(?:https?:\/\/)?(?:www\.)?pinterest\.com\/([A-Za-z0-9_]+)/i,
+  snapchat:   /(?:https?:\/\/)?(?:www\.)?snapchat\.com\/add\/([A-Za-z0-9_.]+)/i,
+  threads:    /(?:https?:\/\/)?(?:www\.)?threads\.net\/@([A-Za-z0-9_.]+)/i,
+  medium:     /(?:https?:\/\/)?(?:www\.)?medium\.com\/@([A-Za-z0-9_.]+)/i,
+  hashnode:   /(?:https?:\/\/)?(?:www\.)?hashnode\.com\/@([A-Za-z0-9_.]+)/i,
+  behance:    /(?:https?:\/\/)?(?:www\.)?behance\.net\/([A-Za-z0-9_]+)/i,
+  dribbble:   /(?:https?:\/\/)?(?:www\.)?dribbble\.com\/([A-Za-z0-9_]+)/i,
+  producthunt:/(?:https?:\/\/)?(?:www\.)?producthunt\.com\/@([A-Za-z0-9_]+)/i,
 };
 
-// Platforms that should NOT be followed as profile pages
 const SKIP_DOMAINS = [
-  'wikipedia.org', 'google.com', 'bing.com', 'yahoo.com',
-  'amazon.com', 'youtube.com', 'reddit.com', 'quora.com',
+  'google.com', 'bing.com', 'yahoo.com', 'amazon.com',
+  'reddit.com', 'quora.com', 'wikipedia.org',
 ];
 
 function isSkippedDomain(url) {
@@ -97,19 +100,16 @@ function isSocialProfileUrl(url) {
 
 function extractSocialsFromHtml($, pageUrl) {
   const socials = {};
-
-  // From anchor hrefs
   $('a[href]').each((_, el) => {
     const href = $(el).attr('href') || '';
     const abs = toAbsolute(href, pageUrl);
     for (const [platform, pattern] of Object.entries(SOCIAL_PATTERNS)) {
       if (!socials[platform] && pattern.test(abs)) {
-        socials[platform] = normaliseUrl(abs);
+        socials[platform] = normaliseUrl(abs.match(pattern)[0]);
       }
     }
   });
-
-  // From page text (catches obfuscated links)
+  // Also scan page text for social handles
   const text = $('body').text();
   for (const [platform, pattern] of Object.entries(SOCIAL_PATTERNS)) {
     if (!socials[platform]) {
@@ -117,7 +117,6 @@ function extractSocialsFromHtml($, pageUrl) {
       if (m) socials[platform] = normaliseUrl(m[0]);
     }
   }
-
   return socials;
 }
 
@@ -128,20 +127,23 @@ const PHONE_RE = /(?:\+?[\d]{1,3}[\s.-]?)?(?:\([\d]{1,4}\)[\s.-]?)?[\d]{3,4}[\s.
 function extractPhones(text) {
   const raw = text.match(PHONE_RE) || [];
   return [...new Set(
-    raw
-      .map(p => p.trim().replace(/\s+/g, ' '))
-      .filter(p => p.replace(/\D/g, '').length >= 7 && p.replace(/\D/g, '').length <= 15)
-  )].slice(0, 3);
+    raw.map(p => p.trim()).filter(p => p.replace(/\D/g, '').length >= 7 && p.replace(/\D/g, '').length <= 15)
+  )].slice(0, 5);
+}
+
+// ─── Email extraction ─────────────────────────────────────────────────────────
+
+function extractEmails(text) {
+  const raw = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+  return [...new Set(raw)].filter(e => !e.includes('example') && !e.includes('domain')).slice(0, 3);
 }
 
 // ─── URL helpers ──────────────────────────────────────────────────────────────
 
 function toAbsolute(href, base) {
   if (!href) return '';
-  try {
-    if (/^https?:\/\//i.test(href)) return href;
-    return new URL(href, base).href;
-  } catch { return href; }
+  try { return /^https?:\/\//i.test(href) ? href : new URL(href, base).href; }
+  catch { return href; }
 }
 
 function normaliseUrl(url) {
@@ -149,12 +151,39 @@ function normaliseUrl(url) {
   return /^https?:\/\//i.test(url) ? url : `https://${url}`;
 }
 
+// ─── Place category detection ─────────────────────────────────────────────────
+
+const PLACE_CATEGORIES = {
+  school:      /\b(?:school|college|university|academy|institute|polytechnic|nursery|primary|secondary|high school|kindergarten)\b/i,
+  hospital:    /\b(?:hospital|clinic|medical|health centre|pharmacy|dispensary|healthcare)\b/i,
+  mall:        /\b(?:mall|shopping centre|shopping center|plaza|market|supermarket|store|shop)\b/i,
+  restaurant:  /\b(?:restaurant|eatery|cafe|bar|grill|kitchen|diner|bistro|food)\b/i,
+  hotel:       /\b(?:hotel|motel|inn|lodge|resort|hostel|suites)\b/i,
+  bank:        /\b(?:bank|microfinance|credit union|savings|financial)\b/i,
+  church:      /\b(?:church|mosque|temple|cathedral|chapel|parish|ministry)\b/i,
+  government:  /\b(?:government|ministry|council|court|police|embassy|consulate)\b/i,
+  tech:        /\b(?:tech|technology|software|startup|co-working|hub|innovation)\b/i,
+};
+
+function detectPlaceCategory(text) {
+  for (const [cat, pattern] of Object.entries(PLACE_CATEGORIES)) {
+    if (pattern.test(text)) return cat;
+  }
+  return 'place';
+}
+
+// ─── Opening hours extraction ─────────────────────────────────────────────────
+
+function extractHours(text) {
+  const match = text.match(/(?:open(?:ing)?\s*hours?|hours?)[:\s]*([^\n.]{10,80})/i);
+  return match ? match[1].trim() : null;
+}
+
 // ─── Profile page scraper ─────────────────────────────────────────────────────
 
 async function scrapeProfilePage(url) {
   const html = await safeFetch(url);
   if (!html) return null;
-
   const $ = cheerio.load(html);
   const bodyText = $('body').text();
 
@@ -168,26 +197,27 @@ async function scrapeProfilePage(url) {
     $('meta[name="description"]').attr('content') ||
     $('meta[property="og:description"]').attr('content') ||
     $('p').first().text()
-  ).trim().substring(0, 400);
+  ).trim().substring(0, 500);
 
   const location = (
     $('[itemprop="addressLocality"]').first().text() ||
     $('[class*="location"]').first().text() ||
-    $('[class*="city"]').first().text()
+    $('[class*="city"]').first().text() ||
+    $('[class*="country"]').first().text()
   ).trim().substring(0, 100);
 
   const phones = extractPhones(bodyText);
+  const emails = extractEmails(bodyText);
   const socials = extractSocialsFromHtml($, url);
-  const images = extractImages(html, url).slice(0, 6);
+  const images = extractImages(html, url).slice(0, 8);
 
-  // Username from URL
   let username = null;
   for (const pattern of Object.values(SOCIAL_PATTERNS)) {
     const m = url.match(pattern);
     if (m && m[1]) { username = m[1]; break; }
   }
 
-  return { name, bio, location, phones, socials, images, username };
+  return { name, bio, location, phones, emails, socials, images, username };
 }
 
 // ─── People aggregation ───────────────────────────────────────────────────────
@@ -195,16 +225,17 @@ async function scrapeProfilePage(url) {
 async function aggregatePeople(query) {
   const raw = [];
 
-  // 1. GitHub — most reliable structured source
+  // 1. GitHub
   const ghUsers = await searchGitHubUsers(query, 6);
   for (const user of ghUsers) {
     const d = await fetchGitHubUser(user.login);
-    const entry = {
+    raw.push({
       name: d?.name || user.login,
       usernames: [user.login],
       bio: d?.bio || '',
       location: d?.location || '',
       phones: [],
+      emails: d?.email ? [d.email] : [],
       socials: {
         github: user.html_url,
         ...(d?.twitter_username ? { twitter: `https://twitter.com/${d.twitter_username}` } : {}),
@@ -212,22 +243,20 @@ async function aggregatePeople(query) {
       },
       images: user.avatar_url ? [user.avatar_url] : [],
       _sources: 1,
-    };
-    raw.push(entry);
+    });
   }
 
-  // 2. DuckDuckGo — search for the person's name across the web
+  // 2. Web search — 3 targeted queries
   const queries = [
-    `"${query}" site:linkedin.com OR site:twitter.com OR site:instagram.com OR site:github.com`,
-    `"${query}" profile bio`,
-    `"${query}" contact phone`,
+    `"${query}" site:linkedin.com OR site:twitter.com OR site:instagram.com OR site:tiktok.com OR site:facebook.com`,
+    `"${query}" profile bio contact`,
+    `"${query}" developer OR artist OR founder OR CEO OR student`,
   ];
 
   const seenUrls = new Set();
 
   for (const q of queries) {
     const webResults = await duckduckgoSearch(q, 10);
-
     for (const r of webResults) {
       if (seenUrls.has(r.link) || isSkippedDomain(r.link)) continue;
       seenUrls.add(r.link);
@@ -235,7 +264,6 @@ async function aggregatePeople(query) {
       const scraped = await scrapeProfilePage(r.link);
       if (!scraped) continue;
 
-      // Only keep if the name is plausibly related to the query
       const queryWords = query.toLowerCase().split(/\s+/);
       const nameWords = scraped.name.toLowerCase().split(/\s+/);
       const overlap = queryWords.filter(w => w.length > 2 && nameWords.some(n => n.includes(w)));
@@ -247,6 +275,7 @@ async function aggregatePeople(query) {
         bio: scraped.bio || r.snippet || '',
         location: scraped.location || '',
         phones: scraped.phones || [],
+        emails: scraped.emails || [],
         socials: scraped.socials || {},
         images: scraped.images,
         _sources: isSocialProfileUrl(r.link) ? 2 : 1,
@@ -263,62 +292,165 @@ async function aggregatePlaces(query) {
   const raw = [];
   const seenUrls = new Set();
 
-  const webResults = await duckduckgoSearch(`${query} address phone website`, 12);
+  const searchQueries = [
+    `${query} official website address phone`,
+    `${query} location contact hours`,
+    `"${query}" about`,
+  ];
 
-  for (const r of webResults.slice(0, 8)) {
-    if (seenUrls.has(r.link) || isSkippedDomain(r.link)) continue;
-    seenUrls.add(r.link);
+  for (const q of searchQueries) {
+    const webResults = await duckduckgoSearch(q, 10);
 
-    const html = await safeFetch(r.link);
-    if (!html) continue;
+    for (const r of webResults.slice(0, 6)) {
+      if (seenUrls.has(r.link) || isSkippedDomain(r.link)) continue;
+      seenUrls.add(r.link);
 
-    const $ = cheerio.load(html);
-    const bodyText = $('body').text();
+      const html = await safeFetch(r.link);
+      if (!html) continue;
 
-    const name = (
-      $('meta[property="og:title"]').attr('content') ||
-      $('h1').first().text() ||
-      r.title
-    ).trim().substring(0, 120);
+      const $ = cheerio.load(html);
+      const bodyText = $('body').text();
 
-    const description = (
-      $('meta[name="description"]').attr('content') ||
-      $('meta[property="og:description"]').attr('content') ||
-      r.snippet || ''
-    ).trim().substring(0, 400);
+      const name = (
+        $('meta[property="og:title"]').attr('content') ||
+        $('h1').first().text() ||
+        r.title
+      ).trim().substring(0, 150);
 
-    const phones = extractPhones(bodyText);
+      const description = (
+        $('meta[name="description"]').attr('content') ||
+        $('meta[property="og:description"]').attr('content') ||
+        r.snippet || ''
+      ).trim().substring(0, 500);
 
-    const addressMatch = bodyText.match(/\d{1,5}\s[\w\s.]{3,60},\s[\w\s]{2,40},?\s(?:[A-Z]{2}|\w+\s\d{4,6})/);
-    const address = addressMatch ? addressMatch[0].trim() : '';
+      const phones = extractPhones(bodyText);
+      const emails = extractEmails(bodyText);
+      const hours = extractHours(bodyText);
+      const category = detectPlaceCategory(`${name} ${description} ${bodyText.substring(0, 500)}`);
 
-    const website = $('meta[property="og:url"]').attr('content') || r.link;
-    const images = extractImages(html, r.link).slice(0, 5);
+      // Address — try structured markup first, then regex
+      const address = (
+        $('[itemprop="streetAddress"]').first().text() ||
+        $('[class*="address"]').first().text() ||
+        (() => {
+          const m = bodyText.match(/\d{1,5}\s[\w\s.]{3,60},\s[\w\s]{2,40},?\s(?:[A-Z]{2,3}|\w+\s\d{4,6})/);
+          return m ? m[0] : '';
+        })()
+      ).trim().substring(0, 200);
 
-    raw.push({
-      name,
-      address,
-      phones,
-      website,
-      description,
-      images,
-      _sources: 1,
-    });
+      // Social links for places too
+      const socials = extractSocialsFromHtml($, r.link);
+
+      const website = $('meta[property="og:url"]').attr('content') || r.link;
+      const images = extractImages(html, r.link).slice(0, 6);
+
+      // Relevance check — name must overlap with query
+      const queryWords = query.toLowerCase().split(/\s+/);
+      const nameWords = name.toLowerCase().split(/\s+/);
+      const overlap = queryWords.filter(w => w.length > 2 && nameWords.some(n => n.includes(w)));
+      if (overlap.length === 0 && !description.toLowerCase().includes(query.toLowerCase().split(/\s+/)[0])) continue;
+
+      raw.push({
+        name,
+        category,
+        address,
+        phones,
+        emails,
+        hours,
+        website,
+        socials,
+        description,
+        images,
+        _sources: 1,
+      });
+    }
   }
 
   return raw;
 }
 
+// ─── Deep details lookup (for a specific UID result) ─────────────────────────
+
+async function getDetails(name, type = 'people') {
+  const queries = type === 'places'
+    ? [
+        `"${name}" address phone hours`,
+        `"${name}" official site`,
+        `"${name}" reviews location`,
+      ]
+    : [
+        `"${name}" biography profile`,
+        `"${name}" social media accounts`,
+        `"${name}" interview OR portfolio OR work`,
+      ];
+
+  const seenUrls = new Set();
+  const sources = [];
+
+  for (const q of queries) {
+    const webResults = await duckduckgoSearch(q, 8);
+    for (const r of webResults) {
+      if (seenUrls.has(r.link) || isSkippedDomain(r.link)) continue;
+      seenUrls.add(r.link);
+
+      const scraped = type === 'places'
+        ? await scrapeProfilePage(r.link)
+        : await scrapeProfilePage(r.link);
+
+      if (!scraped) continue;
+
+      sources.push({
+        url: r.link,
+        title: r.title,
+        snippet: r.snippet,
+        scraped: {
+          bio: scraped.bio,
+          location: scraped.location,
+          phones: scraped.phones,
+          emails: scraped.emails,
+          socials: scraped.socials,
+          images: scraped.images.slice(0, 4),
+        },
+      });
+    }
+  }
+
+  // Aggregate all scraped data into one merged profile
+  const merged = {
+    name,
+    type,
+    bio: '',
+    location: '',
+    phones: [],
+    emails: [],
+    socials: {},
+    images: [],
+    sources: sources.map(s => ({ url: s.url, title: s.title })),
+  };
+
+  for (const s of sources) {
+    if (!merged.bio && s.scraped.bio) merged.bio = s.scraped.bio;
+    if (!merged.location && s.scraped.location) merged.location = s.scraped.location;
+    merged.phones = [...new Set([...merged.phones, ...s.scraped.phones])].slice(0, 5);
+    merged.emails = [...new Set([...merged.emails, ...s.scraped.emails])].slice(0, 5);
+    merged.images = [...new Set([...merged.images, ...s.scraped.images])].slice(0, 10);
+    for (const [k, v] of Object.entries(s.scraped.socials || {})) {
+      if (!merged.socials[k]) merged.socials[k] = v;
+    }
+  }
+
+  merged.uid = makeUid(name + type);
+  return merged;
+}
+
 // ─── Number duplicate profiles ────────────────────────────────────────────────
 
 function numberDuplicates(results) {
-  // Group by normalised first name token
   const nameCount = {};
   for (const r of results) {
     const key = (r.name || '').toLowerCase().split(/\s+/)[0];
     nameCount[key] = (nameCount[key] || 0) + 1;
   }
-
   const seen = {};
   return results.map(r => {
     const key = (r.name || '').toLowerCase().split(/\s+/)[0];
@@ -342,23 +474,23 @@ async function aggregateSearch(query, type = 'auto') {
     ? await aggregatePlaces(query)
     : await aggregatePeople(query);
 
-  // Score
   const scored = rawResults.map(r => ({
     ...r,
     confidence: scoreResult(r, resolvedType, r._sources || 1),
   }));
   scored.forEach(r => delete r._sources);
 
-  // Merge similar entities
   const merged = matchAndMerge(scored);
-
-  // Sort by confidence
   merged.sort((a, b) => b.confidence - a.confidence);
-
-  // Number profiles that share a first name
   const numbered = numberDuplicates(merged);
 
-  return { query, type: resolvedType, results: numbered };
+  // Attach UID to every result
+  const withUids = numbered.map(r => ({
+    uid: makeUid((r.name || '') + (r.usernames || []).join('') + resolvedType),
+    ...r,
+  }));
+
+  return { query, type: resolvedType, results: withUids };
 }
 
 // ─── Legacy exports ───────────────────────────────────────────────────────────
@@ -374,13 +506,8 @@ async function searchWeb(query, engine = 'duckduckgo', limit = 10) {
 
 async function searchWikipedia(query) {
   try {
-    const data = await safeFetch(
-      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`,
-      {}, { 'User-Agent': 'scraped-cli/2.0' }
-    );
-    if (data && data.extract) {
-      return { found: true, title: data.title, summary: data.extract.substring(0, 500), url: data.content_urls?.desktop?.page };
-    }
+    const data = await safeFetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`, {}, { 'User-Agent': 'scraped-cli/2.0' });
+    if (data && data.extract) return { found: true, title: data.title, summary: data.extract.substring(0, 500), url: data.content_urls?.desktop?.page };
     return { found: false };
   } catch { return { found: false }; }
 }
@@ -394,21 +521,11 @@ async function searchGitHub(query) {
 }
 
 async function searchNews(query) {
-  return {
-    found: true,
-    articles: [{ title: `News about "${query}"`, url: `https://news.google.com/search?q=${encodeURIComponent(query)}`, source: 'Google News', publishedAt: new Date().toISOString() }],
-  };
+  return { found: true, articles: [{ title: `News about "${query}"`, url: `https://news.google.com/search?q=${encodeURIComponent(query)}`, source: 'Google News', publishedAt: new Date().toISOString() }] };
 }
 
 async function searchSocialMedia(query) {
-  return {
-    found: true,
-    platforms: {
-      twitter: `https://twitter.com/search?q=${encodeURIComponent(query)}`,
-      linkedin: `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(query)}`,
-      instagram: `https://www.instagram.com/explore/tags/${encodeURIComponent(query.replace(/ /g, ''))}/`,
-    },
-  };
+  return { found: true, platforms: { twitter: `https://twitter.com/search?q=${encodeURIComponent(query)}`, linkedin: `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(query)}` } };
 }
 
 async function searchAcademic(query) {
@@ -416,35 +533,10 @@ async function searchAcademic(query) {
 }
 
 async function deepInvestigation(query, deepSearch = false) {
-  const results = {
-    query,
-    timestamp: new Date().toISOString(),
-    webSearch: await searchWeb(query, 'duckduckgo', 5),
-    wikipedia: await searchWikipedia(query),
-    github: await searchGitHub(query),
-    news: await searchNews(query),
-  };
-  if (deepSearch) {
-    results.social = await searchSocialMedia(query);
-    results.academic = await searchAcademic(query);
-  }
-  results.summary = {
-    totalSources: (results.wikipedia.found ? 1 : 0) + (results.github.found ? 1 : 0) + (results.news.found ? 1 : 0),
-    webResults: results.webSearch.length,
-    hasWikipedia: results.wikipedia.found,
-    hasGitHub: results.github.found,
-    hasNews: results.news.found,
-  };
+  const results = { query, timestamp: new Date().toISOString(), webSearch: await searchWeb(query, 'duckduckgo', 5), wikipedia: await searchWikipedia(query), github: await searchGitHub(query), news: await searchNews(query) };
+  if (deepSearch) { results.social = await searchSocialMedia(query); results.academic = await searchAcademic(query); }
+  results.summary = { totalSources: (results.wikipedia.found ? 1 : 0) + (results.github.found ? 1 : 0) + (results.news.found ? 1 : 0), webResults: results.webSearch.length, hasWikipedia: results.wikipedia.found, hasGitHub: results.github.found, hasNews: results.news.found };
   return results;
 }
 
-module.exports = {
-  aggregateSearch,
-  searchWeb,
-  deepInvestigation,
-  searchWikipedia,
-  searchGitHub,
-  searchNews,
-  searchSocialMedia,
-  searchAcademic,
-};
+module.exports = { aggregateSearch, getDetails, searchWeb, deepInvestigation, searchWikipedia, searchGitHub, searchNews, searchSocialMedia, searchAcademic };
