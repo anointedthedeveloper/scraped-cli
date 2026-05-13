@@ -1,0 +1,12 @@
+# Dev files
+.git
+.gitignore
+.env
+
+# Output/test artifacts
+*.json
+!package.json
+
+# Misc scripts
+investigate-github.js
+custom-investigate.js

@@ -26,10 +26,13 @@ Examples:
   scraped https://example.com --map title:h1 price:.price
   scraped https://example.com --map title:.title content:.description --out result.json
 
-Search Commands:
-  scraped search "query" - Search the web
-  scraped investigate "name" - Generate intelligence report about a person/topic
-  scraped batch queries.txt - Batch search multiple queries`);
+Aggregation Commands:
+  scraped search "Anointed"                        - Auto-detect type and aggregate
+  scraped search "Anointed" --type people          - People search
+  scraped search "Lagos" --type places             - Places search
+  scraped search "Anointed" --out results.json     - Save to file
+  scraped investigate "name"                       - Deep intelligence report
+  scraped batch queries.txt                        - Batch search multiple queries`);
 
   program.action(async (url, options) => {
     try {
@@ -51,56 +54,37 @@ Search Commands:
 }
 
 /**
- * Search command - search the web for a query
+ * Search command - intelligent people/places aggregation
  */
 function setupSearchCommand(program) {
   program
     .command('search <query>')
-    .description('Search the web for a query')
-    .option('-e, --engine <engine>', 'Search engine (duckduckgo, google)', 'duckduckgo')
-    .option('-l, --limit <number>', 'Number of results', '10')
-    .option('-o, --out <file>', 'Save results to file')
+    .description('Aggregate structured data about a person or place from across the web')
+    .option('-t, --type <type>', 'Search type: people, places, or auto', 'auto')
+    .option('-o, --out <file>', 'Save results to JSON file')
     .action(async (query, options) => {
       try {
-        const { searchWeb } = require('./search');
-        
-        const results = await searchWeb(query, options.engine, parseInt(options.limit));
-        
-        const output = {
-          query,
-          engine: options.engine,
-          timestamp: new Date().toISOString(),
-          totalResults: results.length,
-          results
-        };
-        
+        const { aggregateSearch } = require('./search');
+
+        const validTypes = ['people', 'places', 'auto'];
+        if (!validTypes.includes(options.type)) {
+          console.error(`❌ Invalid type "${options.type}". Use: people, places, or auto`);
+          process.exit(1);
+        }
+
+        console.error(`\n🔍 Aggregating data for: "${query}" [type: ${options.type}]`);
+        console.error('⏳ This may take a moment...\n');
+
+        const output = await aggregateSearch(query, options.type);
+
         if (options.out) {
           const { outputJSON } = require('./output');
           await outputJSON(output, options.out);
-          console.error(`✅ Search results saved to: ${options.out}`);
+          console.error(`✅ Results saved to: ${options.out}`);
         } else {
-          // Display results in console
-          console.log('\n' + '='.repeat(70));
-          console.log(`🔍 SEARCH RESULTS for: "${query}"`);
-          console.log('='.repeat(70));
-          
-          if (results.length === 0) {
-            console.log('\n❌ No results found. Try a different search term.\n');
-          } else {
-            results.forEach((result, index) => {
-              console.log(`\n${index + 1}. ${result.title}`);
-              console.log(`   🔗 ${result.link}`);
-              if (result.snippet) {
-                console.log(`   📝 ${result.snippet.substring(0, 150)}${result.snippet.length > 150 ? '...' : ''}`);
-              }
-            });
-            
-            console.log('\n' + '='.repeat(70));
-            console.log(`📊 Total: ${results.length} results`);
-            console.log('='.repeat(70) + '\n');
-          }
+          console.log(JSON.stringify(output, null, 2));
         }
-        
+
       } catch (error) {
         console.error('❌ Search error:', error.message);
         process.exit(1);

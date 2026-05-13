@@ -1,7 +1,7 @@
 {
   "name": "scraped-cli",
-  "version": "1.0.0",
-  "description": "CLI web scraping tool",
+  "version": "1.0.1",
+  "description": "A powerful CLI tool for intelligent web scraping, people & places aggregation using CSS selectors",
   "main": "bin/scraped.js",
   "bin": {
     "scraped": "bin/scraped.js"
@@ -9,6 +9,22 @@
   "scripts": {
     "start": "node bin/scraped.js"
   },
+  "keywords": [
+    "web-scraper",
+    "cli",
+    "cli-tool",
+    "scraping",
+    "web-scraping",
+    "automation",
+    "nodejs",
+    "css-selector",
+    "data-extraction",
+    "cheerio",
+    "people-search",
+    "osint"
+  ],
+  "author": "anointedthedeveloper",
+  "license": "MIT",
   "dependencies": {
     "axios": "^1.6.2",
     "cheerio": "^1.0.0-rc.12",
